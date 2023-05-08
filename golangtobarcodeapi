@@ -1,0 +1,84 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+
+	"github.com/snowflakedb/gosnowflake"
+)
+
+type BarcodeLookupResult struct {
+	ItemName string `json:"item_name"`
+	Brand    string `json:"brand"`
+	UPC      string `json:"upc"`
+	ASIN     string `json:"asin"`
+}
+
+func main() {
+	// Replace with your Snowflake account credentials
+	account := "myaccount"
+	user := "myuser"
+	password := "mypassword"
+	warehouse := "mywarehouse"
+	database := "mydatabase"
+	schema := "myschema"
+
+	// Create a Snowflake DB connection
+	cfg := gosnowflake.Config{
+		Account:  account,
+		User:     user,
+		Password: password,
+		Warehouse: warehouse,
+	}
+	db, err := sql.Open("snowflake", cfg.FormatDSN())
+	if err != nil {
+		fmt.Println("Error opening Snowflake DB connection:", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Create a table to store the barcode lookup results
+	_, err = db.Exec(fmt.Sprintf("CREATE TABLE %s.%s.barcode_lookup (item_name STRING, brand STRING, upc STRING, asin STRING)", database, schema))
+	if err != nil {
+		fmt.Println("Error creating barcode_lookup table:", err)
+		os.Exit(1)
+	}
+
+	// Make a request to the Barcode Lookup API to retrieve product information
+	// Replace with your API key and either a UPC or ASIN to lookup
+	apiKey := "myapikey"
+	barcode := "0123456789012" // Replace with a valid UPC or ASIN
+	url := fmt.Sprintf("https://api.barcodelookup.com/v2/products?barcode=%s&formatted=y&key=%s", barcode, apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Error retrieving product information from Barcode Lookup API:", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	// Read the response body and unmarshal it into a BarcodeLookupResult struct
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading product information from Barcode Lookup API response:", err)
+		os.Exit(1)
+	}
+	var result BarcodeLookupResult
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		fmt.Println("Error unmarshalling product information from Barcode Lookup API response:", err)
+		os.Exit(1)
+	}
+
+	// Insert the barcode lookup result into the Snowflake database
+	_, err = db.Exec(fmt.Sprintf("INSERT INTO %s.%s.barcode_lookup (item_name, brand, upc, asin) VALUES ('%s', '%s', '%s', '%s')", database, schema, result.ItemName, result.Brand, result.UPC, result.ASIN))
+	if err != nil {
+		fmt.Println("Error inserting barcode lookup result into Snowflake database:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Barcode lookup result inserted into Snowflake database.")
+}
